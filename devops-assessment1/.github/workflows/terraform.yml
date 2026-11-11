@@ -1,0 +1,64 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.9.8"
+
+jobs:
+  terraform:
+    name: Terraform ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, prod]
+
+    defaults:
+      run:
+        working-directory: infra/envs/${{ matrix.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      # AWS deployment is intentionally not required by the assessment.
+      # When AWS credentials are configured in GitHub, the optional plan
+      # step below can be enabled by setting ENABLE_AWS_PLAN=true.
+      - name: Terraform Plan (optional AWS)
+        if: ${{ vars.ENABLE_AWS_PLAN == 'true' }}
+        env:
+          AWS_REGION: ap-south-1
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform plan -refresh=false -var-file=${{ matrix.environment }}.tfvars
+
+      - name: Plan not enabled
+        if: ${{ vars.ENABLE_AWS_PLAN != 'true' }}
+        run: echo "Terraform plan skipped. Enable the repository variable ENABLE_AWS_PLAN=true after configuring AWS credentials."
